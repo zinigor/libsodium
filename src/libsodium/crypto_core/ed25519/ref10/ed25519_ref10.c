@@ -2525,27 +2525,19 @@ chi25519(fe25519 out, const fe25519 z)
     fe25519_mul(out, t1, t0);
 }
 
-void
-ge25519_from_uniform(unsigned char s[32], const unsigned char r[32])
+static void
+ge25519_elligator2(unsigned char s[32], const fe25519 r, const unsigned char x_sign)
 {
-    fe25519       e;
-    fe25519       negx;
-    fe25519       rr2;
-    fe25519       x, x2, x3;
-    ge25519_p3    p3;
-    ge25519_p1p1  p1;
-    ge25519_p2    p2;
-    unsigned int  e_is_minus_1;
-    unsigned char x_sign;
+    fe25519      e;
+    fe25519      negx;
+    fe25519      rr2;
+    fe25519      x, x2, x3;
+    ge25519_p3   p3;
+    ge25519_p1p1 p1;
+    ge25519_p2   p2;
+    unsigned int e_is_minus_1;
 
-    memcpy(s, r, 32);
-    x_sign = s[31] & 0x80;
-    s[31] &= 0x7f;
-
-    fe25519_frombytes(rr2, s);
-
-    /* elligator */
-    fe25519_sq2(rr2, rr2);
+    fe25519_sq2(rr2, r);
     rr2[0]++;
     fe25519_invert(rr2, rr2);
     fe25519_mul(x, curve25519_A, rr2);
@@ -2598,6 +2590,46 @@ ge25519_from_uniform(unsigned char s[32], const unsigned char r[32])
     ge25519_p1p1_to_p3(&p3, &p1);
 
     ge25519_p3_tobytes(s, &p3);
+}
+
+void
+ge25519_from_uniform(unsigned char s[32], const unsigned char r[32])
+{
+    fe25519       r_fe;
+    unsigned char x_sign;
+
+    memcpy(s, r, 32);
+    x_sign = s[31] & 0x80;
+    s[31] &= 0x7f;
+    fe25519_frombytes(r_fe, s);
+    ge25519_elligator2(s, r_fe, x_sign);
+}
+
+void
+ge25519_from_hash(unsigned char s[32], const unsigned char h[64])
+{
+    unsigned char fl[32];
+    unsigned char gl[32];
+    fe25519       fe_f;
+    fe25519       fe_g;
+    size_t        i;
+    unsigned char x_sign;
+
+    x_sign = h[0] & 0x80;
+    for (i = 0; i < 32; i++) {
+        fl[i] = h[63 - i];
+        gl[i] = h[31 - i];
+    }
+    fl[31] &= 0x7f;
+    gl[31] &= 0x7f;
+    fe25519_frombytes(fe_f, fl);
+    fe25519_frombytes(fe_g, gl);
+    fe_f[0] += (h[32] >> 7) * 19;
+    for (i = 0; i < sizeof (fe25519) / sizeof fe_f[0]; i++) {
+        fe_f[i] += 38 * fe_g[i];
+    }
+    fe25519_reduce(fe_f, fe_f);
+    ge25519_elligator2(s, fe_f, x_sign);
 }
 
 /* Ristretto group */
@@ -2815,7 +2847,7 @@ ristretto255_elligator(ge25519_p3 *p, const fe25519 t)
 }
 
 void
-ristretto255_from_uniform(unsigned char s[32], const unsigned char r[64])
+ristretto255_from_hash(unsigned char s[32], const unsigned char h[64])
 {
     fe25519        r0, r1;
     ge25519_cached p1_cached;
@@ -2823,8 +2855,8 @@ ristretto255_from_uniform(unsigned char s[32], const unsigned char r[64])
     ge25519_p3     p0, p1;
     ge25519_p3     p;
 
-    fe25519_frombytes(r0, r);
-    fe25519_frombytes(r1, r + 32);
+    fe25519_frombytes(r0, h);
+    fe25519_frombytes(r1, h + 32);
     ristretto255_elligator(&p0, r0);
     ristretto255_elligator(&p1, r1);
     ge25519_p3_to_cached(&p1_cached, &p1);
